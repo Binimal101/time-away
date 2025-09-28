@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, Plus, CreditCard as Edit, Trash2, Save, X, Search, Filter, Mail, Phone, MapPin, Award, Briefcase } from 'lucide-react';
 import { Employee, PTOBalance } from '../types';
 
@@ -22,8 +22,34 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState<Partial<Employee>>({});
+  const [departments, setDepartments] = useState<Array<{department: string, employee_count: number}>>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const departments = [...new Set(employees.map(emp => emp.department))];
+  // Fetch departments from database
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch('http://localhost:5000/api/departments');
+        const data = await response.json();
+        
+        if (data.success) {
+          setDepartments(data.departments);
+        } else {
+          setError('Failed to fetch departments');
+        }
+      } catch (err) {
+        setError('Failed to connect to database');
+        console.error('Error fetching departments:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDepartments();
+  }, []);
 
   const filteredEmployees = employees.filter(employee => {
     const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -103,6 +129,25 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({
         </button>
       </div>
 
+      {/* Loading and Error States */}
+      {loading && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+            <span className="text-blue-700">Loading departments from database...</span>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="text-red-600 mr-2">⚠️</div>
+            <span className="text-red-700">{error}</span>
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters */}
       <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -122,11 +167,20 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              disabled={loading}
             >
               <option value="all">All Departments</option>
-              {departments.map(dept => (
-                <option key={dept} value={dept}>{dept}</option>
-              ))}
+              {loading ? (
+                <option disabled>Loading departments...</option>
+              ) : error ? (
+                <option disabled>Error loading departments</option>
+              ) : (
+                departments.map(dept => (
+                  <option key={dept.department} value={dept.department}>
+                    {dept.department} ({dept.employee_count} employees)
+                  </option>
+                ))
+              )}
             </select>
           </div>
         </div>
@@ -320,13 +374,20 @@ export const TeamManagement: React.FC<TeamManagementProps> = ({
                   value={formData.department || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={loading}
                 >
                   <option value="">Select Department</option>
-                  <option value="Engineering">Engineering</option>
-                  <option value="Marketing">Marketing</option>
-                  <option value="Sales">Sales</option>
-                  <option value="HR">HR</option>
-                  <option value="Finance">Finance</option>
+                  {loading ? (
+                    <option disabled>Loading departments...</option>
+                  ) : error ? (
+                    <option disabled>Error loading departments</option>
+                  ) : (
+                    departments.map(dept => (
+                      <option key={dept.department} value={dept.department}>
+                        {dept.department} ({dept.employee_count} employees)
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 

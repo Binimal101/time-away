@@ -6,6 +6,7 @@ import google.generativeai as genai
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
+from server.src.db.connect import get_db, get_all_collections
 from server.src.search._search import HorizonSchedulerPTO, HorizonSchedule
 from server.src import _TZ, logger
 
@@ -43,9 +44,75 @@ def build_month_schedule_with_pto_from_items(people: List[object], tasks: List[o
     first = month_date.replace(day=1)
     last = (first + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
     span = (last - first).days + 1
-    return HorizonSchedulerPTO(people, tasks, first, span, int(datetime.datetime.now(tz=_TZ).timestamp()), allow_future=True, pto_map=pto_map).build() # type: ignore
+    return HorizonSchedulerPTO(people, tasks, first, span, int(datetime.datetime.now(tz=_TZ).timestamp()), allow_future=True, pto_map=pto_map).build() # type: ignore 
 
+def get_all_connections_from_database() -> Dict[str, Any]:
+    """Get all connections from the database."""
+    mongodb_client = get_db()
+    collections = mongodb_client.list_collection_names()
+    db = {}
+    for collection in collections:
+        db[collection]= mongodb_client[collection]
+    return db
+    
+def get_people_from_department(db: Dict[str, Any], department: str) -> List[Dict[str, Any]]:
+    """Get people from the department with validation and distinct results.
+    
+    Args:
+        db: Database connections dictionary
+        department: Department name to filter by
+        
+    Returns:
+        List of distinct user profiles from the department
+    """
+    if 'user_profile' not in db:
+        logger.warning("user_profile collection not found in database")
+        return []
+    
+    # Check if department exists by looking for any users in that department
+    dept_check = db['user_profile'].find_one({"department": department})
+    if not dept_check:
+        logger.warning(f"Department '{department}' not found in database")
+        return []
+    
+    # Get all distinct user profiles from the department
+    # Using distinct to ensure no duplicates
+    people_cursor = db['user_profile'].find({"department": department})
+    
+    # Convert to list and ensure distinct by person_id
+    people_list = list(people_cursor)
+    seen_ids = set()
+    distinct_people = []
+    
+    for person in people_list:
+        person_id = person.get('person_id') or person.get('_id')
+        if person_id and person_id not in seen_ids:
+            seen_ids.add(person_id)
+            distinct_people.append(person)
+    
+    logger.info(f"Found {len(distinct_people)} distinct people in department '{department}'")
+    return distinct_people
 
+def get_all_tasks_from_department(db: Dict[str, Any], department: str) -> List[Dict[str, Any]]:
+    """Get all tasks from the department.
+    
+    Args:
+        db: Database connections dictionary
+        department: Department name to filter by
+        
+    Returns:
+        List of tasks from the department
+    """
+    if 'tasks' not in db:
+        logger.warning("tasks collection not found in database")
+        return []
+    
+    # Get all tasks from the department
+    tasks_cursor = db['tasks'].find({"department": department})
+    tasks_list = list(tasks_cursor)
+    
+    logger.info(f"Found {len(tasks_list)} tasks in department '{department}'")
+    return tasks_list
 # ------------------ MCP Server for Gemini ------------------
 
 def _init_gemini() -> None:
@@ -112,6 +179,141 @@ def create_mcp_server() -> FastMCP:
         tasks = []
         hs = build_month_schedule_with_pto_from_items(people, tasks, datetime.date.today(), pto_map={})
         return {"feasible": hs.feasible, "days": len(hs.days)}
+
+    @mcp.tool()
+    def mcp_read_connections_db() -> Dict[str, object]:
+        """Read connections from the database."""
+        db = get_all_connections_from_database()
+        return {"connections": list(db.keys())}
+
+    @mcp.tool()
+    def get_people_by_department(department: str) -> Dict[str, object]:
+        """Get all people from a specific department (READ-ONLY).
+        
+        Args:
+            department: The department name to query
+            
+        Returns:
+            Dictionary with people list and metadata
+        """
+        try:
+            db = get_all_connections_from_database()
+            people = get_people_from_department(db, department)
+            return {
+                "department": department,
+                "people_count": len(people),
+                "people": people,
+                "success": True
+            }
+        except Exception as e:
+            logger.error(f"Error getting people from department {department}: {e}")
+            return {
+                "department": department,
+                "people_count": 0,
+                "people": [],
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    def get_tasks_by_department(department: str) -> Dict[str, object]:
+        """Get all tasks from a specific department (READ-ONLY).
+        
+        Args:
+            department: The department name to query
+            
+        Returns:
+            Dictionary with tasks list and metadata
+        """
+        try:
+            db = get_all_connections_from_database()
+            tasks = get_all_tasks_from_department(db, department)
+            return {
+                "department": department,
+                "tasks_count": len(tasks),
+                "tasks": tasks,
+                "success": True
+            }
+        except Exception as e:
+            logger.error(f"Error getting tasks from department {department}: {e}")
+            return {
+                "department": department,
+                "tasks_count": 0,
+                "tasks": [],
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    def list_all_departments() -> Dict[str, object]:
+        """List all available departments (READ-ONLY).
+        
+        Returns:
+            Dictionary with departments list and metadata
+        """
+        try:
+            db = get_all_connections_from_database()
+            if 'user_profile' not in db:
+                return {
+                    "departments": [],
+                    "departments_count": 0,
+                    "success": False,
+                    "error": "user_profile collection not found"
+                }
+            
+            # Get distinct departments
+            departments = db['user_profile'].distinct("department")
+            return {
+                "departments": departments,
+                "departments_count": len(departments),
+                "success": True
+            }
+        except Exception as e:
+            logger.error(f"Error listing departments: {e}")
+            return {
+                "departments": [],
+                "departments_count": 0,
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    def get_user_profile_by_id(person_id: str) -> Dict[str, object]:
+        """Get a specific user profile by ID (READ-ONLY).
+        
+        Args:
+            person_id: The person ID to query
+            
+        Returns:
+            Dictionary with user profile and metadata
+        """
+        try:
+            db = get_all_connections_from_database()
+            if 'user_profile' not in db:
+                return {
+                    "person_id": person_id,
+                    "profile": None,
+                    "success": False,
+                    "error": "user_profile collection not found"
+                }
+            
+            profile = db['user_profile'].find_one({"person_id": person_id})
+            if not profile:
+                profile = db['user_profile'].find_one({"_id": person_id})
+            
+            return {
+                "person_id": person_id,
+                "profile": profile,
+                "success": profile is not None
+            }
+        except Exception as e:
+            logger.error(f"Error getting user profile for {person_id}: {e}")
+            return {
+                "person_id": person_id,
+                "profile": None,
+                "success": False,
+                "error": str(e)
+            }
 
     return mcp
 

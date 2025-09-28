@@ -230,57 +230,101 @@ export const tasks: Task[] = [
 export const currentUser: Employee = employees.find(emp => emp.role === 'manager') || employees[0];
 
 export const ptoBalances: PTOBalance[] = [
-  { id: '1', employeeId: '1', year: 2025, vacationDays: 20, sickDays: 10, personalDays: 5, usedVacation: 3, usedSick: 1, usedPersonal: 0 },
-  { id: '2', employeeId: '2', year: 2025, vacationDays: 18, sickDays: 10, personalDays: 5, usedVacation: 5, usedSick: 2, usedPersonal: 1 },
-  { id: '3', employeeId: '3', year: 2025, vacationDays: 25, sickDays: 12, personalDays: 7, usedVacation: 8, usedSick: 0, usedPersonal: 2 },
-  { id: '4', employeeId: '4', year: 2025, vacationDays: 15, sickDays: 10, personalDays: 5, usedVacation: 2, usedSick: 3, usedPersonal: 0 },
-  { id: '5', employeeId: '5', year: 2025, vacationDays: 18, sickDays: 10, personalDays: 5, usedVacation: 4, usedSick: 1, usedPersonal: 1 },
-  { id: '6', employeeId: '6', year: 2025, vacationDays: 12, sickDays: 8, personalDays: 3, usedVacation: 1, usedSick: 0, usedPersonal: 0 },
-  { id: '7', employeeId: '7', year: 2025, vacationDays: 16, sickDays: 10, personalDays: 5, usedVacation: 3, usedSick: 2, usedPersonal: 1 },
-  { id: '8', employeeId: '8', year: 2025, vacationDays: 10, sickDays: 8, personalDays: 3, usedVacation: 0, usedSick: 1, usedPersonal: 0 }
+  { 
+    id: '1', employeeId: '1', year: 2025, vacationDays: 20, sickDays: 10, personalDays: 5, 
+    usedVacation: 3, usedSick: 1, usedPersonal: 0,
+    vacation: 17, sick: 9, personal: 5, totalAvailable: 35, totalUsed: 4
+  },
+  { 
+    id: '2', employeeId: '2', year: 2025, vacationDays: 18, sickDays: 10, personalDays: 5, 
+    usedVacation: 5, usedSick: 2, usedPersonal: 1,
+    vacation: 13, sick: 8, personal: 4, totalAvailable: 33, totalUsed: 8
+  },
+  { 
+    id: '3', employeeId: '3', year: 2025, vacationDays: 25, sickDays: 12, personalDays: 7, 
+    usedVacation: 8, usedSick: 0, usedPersonal: 2,
+    vacation: 17, sick: 12, personal: 5, totalAvailable: 44, totalUsed: 10
+  },
+  { 
+    id: '4', employeeId: '4', year: 2025, vacationDays: 15, sickDays: 10, personalDays: 5, 
+    usedVacation: 2, usedSick: 3, usedPersonal: 0,
+    vacation: 13, sick: 7, personal: 5, totalAvailable: 30, totalUsed: 5
+  },
+  { 
+    id: '5', employeeId: '5', year: 2025, vacationDays: 18, sickDays: 10, personalDays: 5, 
+    usedVacation: 4, usedSick: 1, usedPersonal: 1,
+    vacation: 14, sick: 9, personal: 4, totalAvailable: 33, totalUsed: 6
+  },
+  { 
+    id: '6', employeeId: '6', year: 2025, vacationDays: 12, sickDays: 8, personalDays: 3, 
+    usedVacation: 1, usedSick: 0, usedPersonal: 0,
+    vacation: 11, sick: 8, personal: 3, totalAvailable: 22, totalUsed: 1
+  },
+  { 
+    id: '7', employeeId: '7', year: 2025, vacationDays: 16, sickDays: 10, personalDays: 5, 
+    usedVacation: 3, usedSick: 2, usedPersonal: 1,
+    vacation: 13, sick: 8, personal: 4, totalAvailable: 31, totalUsed: 6
+  },
+  { 
+    id: '8', employeeId: '8', year: 2025, vacationDays: 10, sickDays: 8, personalDays: 3, 
+    usedVacation: 0, usedSick: 1, usedPersonal: 0,
+    vacation: 10, sick: 7, personal: 3, totalAvailable: 21, totalUsed: 1
+  }
 ];
 
 export const ptoRequests: PTORequest[] = [
   {
     id: '1',
     employeeId: '1',
+    employeeName: 'John Smith',
     type: 'vacation',
     startDate: '2025-02-15',
     endDate: '2025-02-17',
     reason: 'Family vacation to Florida',
     status: 'pending',
-    submittedAt: '2025-01-20T10:00:00Z'
+    submittedAt: '2025-01-20T10:00:00Z',
+    days: 3
   },
   {
     id: '2',
     employeeId: '2',
+    employeeName: 'Sarah Johnson',
     type: 'sick',
     startDate: '2025-02-10',
     endDate: '2025-02-10',
     reason: 'Doctor appointment',
     status: 'approved',
     submittedAt: '2025-01-18T14:30:00Z',
-    approvedAt: '2025-01-19T09:15:00Z'
+    approvedAt: '2025-01-19T09:15:00Z',
+    reviewedAt: '2025-01-19T09:15:00Z',
+    reviewedBy: 'Mike Wilson',
+    days: 1
   },
   {
     id: '3',
     employeeId: '5',
+    employeeName: 'David Brown',
     type: 'vacation',
     startDate: '2025-03-01',
     endDate: '2025-03-05',
     reason: 'Spring break trip',
     status: 'pending',
-    submittedAt: '2025-01-22T16:45:00Z'
+    submittedAt: '2025-01-22T16:45:00Z',
+    days: 5
   },
   {
     id: '4',
     employeeId: '7',
+    employeeName: 'Robert Taylor',
     type: 'personal',
     startDate: '2025-02-20',
     endDate: '2025-02-20',
     reason: 'Personal matters',
     status: 'approved',
     submittedAt: '2025-01-15T11:20:00Z',
-    approvedAt: '2025-01-16T08:30:00Z'
+    approvedAt: '2025-01-16T08:30:00Z',
+    reviewedAt: '2025-01-16T08:30:00Z',
+    reviewedBy: 'Mike Wilson',
+    days: 1
   }
 ];

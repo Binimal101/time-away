@@ -6,7 +6,6 @@ import { RequestsList } from './components/RequestsList';
 import { TeamCalendar } from './components/TeamCalendar';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { Analytics } from './components/Analytics';
-import { PolicyManagement } from './components/PolicyManagement';
 import { TeamManagement } from './components/TeamManagement';
 import ChatBot from './components/ChatBot';
 import { employees as initialEmployees, ptoBalances, ptoRequests, currentUser } from './data/mockData';
@@ -144,8 +143,6 @@ function App() {
         );
       case 'analytics':
         return <Analytics requests={requests} employees={employees} balances={ptoBalances} />;
-      case 'policies':
-        return <PolicyManagement />;
       default:
         return null;
     }

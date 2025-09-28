@@ -1,0 +1,26 @@
+[
+  {
+    "case": "PTO blocks critical skill (infeasible Day1)",
+    "feasible": false,
+    "violations": 1,
+    "validator_errors": 3
+  },
+  {
+    "case": "PTO with alternates (feasible)",
+    "feasible": true,
+    "violations": 0,
+    "validator_errors": 0
+  },
+  {
+    "case": "Rolling cap + PTO interplay",
+    "feasible": true,
+    "violations": 0,
+    "validator_errors": 0
+  },
+  {
+    "case": "Month helper with recurring PTOs",
+    "feasible": false,
+    "violations": 8,
+    "validator_errors": 60
+  }
+]

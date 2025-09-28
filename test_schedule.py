@@ -149,10 +149,12 @@ def run_pto_tests():
     df = pd.DataFrame(rows)
     display_dataframe_to_user("PTO-aware Scheduler - Test Results", df)
 
-    out = "/mnt/data/pto_scheduler_test_results.json"
+    artifacts_dir = os.path.join(os.path.dirname(__file__), "artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
+    out = os.path.join(artifacts_dir, "pto_scheduler_test_results.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=2)
-    out_sched = "/mnt/data/pto_month_schedule.json"
+    out_sched = os.path.join(artifacts_dir, "pto_month_schedule.json")
     with open(out_sched, "w", encoding="utf-8") as f:
         json.dump(asdict(hs_month), f, indent=2)
 

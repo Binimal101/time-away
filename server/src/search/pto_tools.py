@@ -325,7 +325,8 @@ def generate_month_view(
     tasks: List[Union[Task, dict]],
     store: Union[PlanStore, dict, str],
     now_epoch: int,
-    pto_map: Optional[Dict[Union[date, str], List[Union[Person, str, dict]]]] = None
+    pto_map: Optional[Dict[Union[date, str], List[Union[Person, str, dict]]]] = None,
+    use_global_pto: bool = True
 ) -> Tuple[List[Assignment], List[Tuple[date, Dict[str, Dict[str, int]]]]]:
     """
     Produce the schedule for an entire calendar month, week-by-week.
@@ -337,7 +338,19 @@ def generate_month_view(
     parsed_tasks = [custom_task_constructor(t) for t in tasks]
 
     parsed_store = custom_planstore_constructor(store)
-    parsed_pto_map = _merge_pto_maps(pto_map) if pto_map else None
+    
+    # Get effective PTO map
+    first = date(year, month, 1)
+    last = (date(year + (month // 12), (month % 12) + 1, 1) - timedelta(days=1))
+    
+    if use_global_pto:
+        effective_pto = get_effective_pto_map(first, last, pto_map)
+        # Convert back to the expected format for schedule_week
+        parsed_pto_map = {d: person_ids for d, person_ids in effective_pto.items()} if effective_pto else None
+    else:
+        parsed_pto_map = _merge_pto_maps(pto_map) if pto_map else None
+        # Convert to expected format
+        parsed_pto_map = {d: person_ids for d, person_ids in parsed_pto_map.items()} if parsed_pto_map else None
 
     # Compute month bounds
     first = date(year, month, 1)
@@ -349,7 +362,7 @@ def generate_month_view(
 
     cur = start_of_week(first, week_start=0)
     while cur <= last:
-        assigns, unsat = ws.schedule_week(cur, now_epoch, pto_map=parsed_pto_map)
+        assigns, unsat = ws.schedule_week(cur, now_epoch, pto_map=parsed_pto_map)  # type: ignore
         all_assignments.extend(assigns)
         unsat_all.extend(unsat)
         cur += timedelta(days=7)
@@ -362,11 +375,15 @@ def get_current_month_schedule(
     store: Union[PlanStore, dict, str],
     now_epoch: int,
     pto_map: Optional[Dict[Union[date, str], List[Union[Person, str, dict]]]] = None,
-    tz_offset_hours: int = 0
+    tz_offset_hours: int = 0,
+    use_global_pto: bool = True
 ) -> Dict[str, Any]:
     """
     Convenience wrapper: compute the schedule for the month containing now_epoch.
     Returns a JSON-friendly dict with assignments and unsatisfied days.
+    
+    Args:
+        use_global_pto: If True, automatically includes global PTO map from database
     """
     people = []
     for dept in get_all_organization_departments():
@@ -383,6 +400,12 @@ def get_current_month_schedule(
     for dept in get_all_organization_departments():
         all_tasks.extend(get_all_tasks_from_department(dept, first, last))
     
+    # Get effective PTO map (global + additional)
+    if use_global_pto:
+        effective_pto_map = get_effective_pto_map(first, last, pto_map)
+    else:
+        effective_pto_map = _merge_pto_maps(pto_map) if pto_map else None
+    
     assignments, unsat = generate_month_view(
         year=year,
         month=month,
@@ -390,7 +413,7 @@ def get_current_month_schedule(
         tasks=all_tasks,
         store=store,
         now_epoch=now_epoch,
-        pto_map=pto_map
+        pto_map=effective_pto_map  # type: ignore
     )
     # Serialize
     return {
@@ -431,7 +454,7 @@ def schedule_all_departments_week(
         store  = custom_planstore_constructor(get_planstore_for_dept(dept))
         pto    = get_pto_map_for_dept(dept) if get_pto_map_for_dept else None
         ws = WeeklyScheduler(people, tasks, store, tz_offset_hours=0)
-        assigns, unsat = ws.schedule_week(week_start_day, now_epoch, pto_map=_merge_pto_maps(pto) if pto else None)
+        assigns, unsat = ws.schedule_week(week_start_day, now_epoch, pto_map=_merge_pto_maps(pto) if pto else None)  # type: ignore
         results[dept] = {"assignments": assigns, "unsatisfied": unsat, "plan_store": store}
     return results
 
@@ -491,6 +514,84 @@ if MCP_AVAILABLE and mcp:
             return {"success": True, "feasible": feasible, "result": result}
         except Exception as e:
             logger.error(f"Error in approve_pto_request_strict: {e}")
+            return {"success": False, "error": str(e)}
+
+    
+    def generate_monthly_schedule(
+        store_json: str,
+        now_epoch: int,
+        additional_pto_map: Optional[Dict[str, List[str]]] = None,
+        tz_offset_hours: int = 0,
+        use_global_pto: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Generate monthly schedule using global PTO map.
+        
+        Args:
+            store_json: PlanStore as JSON string
+            now_epoch: Current time as epoch timestamp
+            additional_pto_map: Additional PTO beyond global baseline
+            tz_offset_hours: Timezone offset
+            use_global_pto: Whether to use global PTO database
+        """
+        try:
+            result = get_current_month_schedule(
+                store=store_json,
+                now_epoch=now_epoch,
+                pto_map=additional_pto_map,  # type: ignore
+                tz_offset_hours=tz_offset_hours,
+                use_global_pto=use_global_pto
+            )
+            return {"success": True, "schedule": result}
+        except Exception as e:
+            logger.error(f"Error in generate_monthly_schedule: {e}")
+            return {"success": False, "error": str(e)}
+    
+    @mcp.tool()
+    def manage_global_pto(
+        action: str,  # "save", "delete", "get"
+        person_id: Optional[str] = None,
+        pto_dates: Optional[List[str]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Manage global PTO database.
+        
+        Args:
+            action: "save", "delete", or "get"
+            person_id: Person ID (required for save/delete)
+            pto_dates: List of ISO date strings (required for save/delete)
+            start_date: Start date for filtering (optional for get)
+            end_date: End date for filtering (optional for get)
+        """
+        try:
+            if action == "get":
+                start_dt = date.fromisoformat(start_date) if start_date else None
+                end_dt = date.fromisoformat(end_date) if end_date else None
+                pto_map = get_global_pto_map(start_dt, end_dt)
+                return {
+                    "success": True, 
+                    "pto_map": {d.isoformat() if isinstance(d, date) else d: ids for d, ids in pto_map.items()}
+                }
+            
+            elif action == "save":
+                if not person_id or not pto_dates:
+                    return {"success": False, "error": "person_id and pto_dates required for save"}
+                result = save_pto_request(person_id, pto_dates)  # type: ignore
+                return {"success": result, "message": f"Saved PTO for {person_id}" if result else "Failed to save PTO"}
+            
+            elif action == "delete":
+                if not person_id or not pto_dates:
+                    return {"success": False, "error": "person_id and pto_dates required for delete"}
+                result = delete_pto_request(person_id, pto_dates)  # type: ignore
+                return {"success": result, "message": f"Deleted PTO for {person_id}" if result else "Failed to delete PTO"}
+            
+            else:
+                return {"success": False, "error": f"Unknown action: {action}"}
+                
+        except Exception as e:
+            logger.error(f"Error in manage_global_pto: {e}")
             return {"success": False, "error": str(e)}
 else:
     logger.warning("FastMCP not available - MCP handlers not registered")

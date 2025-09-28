@@ -1,0 +1,181 @@
+{
+  "week_start_iso": "2025-09-22T00:00:00+00:00",
+  "week_end_iso": "2025-09-29T00:00:00+00:00",
+  "tz": "UTC",
+  "current_ts": 1758715200,
+  "feasible": true,
+  "violations": [],
+  "days": [
+    {
+      "date": "2025-09-22",
+      "assignments": [
+        {
+          "task_id": "T2",
+          "skill_coverage": {
+            "qa": [
+              "emma"
+            ],
+            "data": [
+              "emma"
+            ]
+          },
+          "people_contributions": {
+            "emma": [
+              "data",
+              "qa"
+            ]
+          }
+        },
+        {
+          "task_id": "T1",
+          "skill_coverage": {
+            "frontend": [
+              "alice"
+            ],
+            "backend": [
+              "alice"
+            ]
+          },
+          "people_contributions": {
+            "alice": [
+              "frontend",
+              "backend"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "date": "2025-09-23",
+      "assignments": [
+        {
+          "task_id": "T3",
+          "skill_coverage": {
+            "frontend": [
+              "emma",
+              "carl"
+            ]
+          },
+          "people_contributions": {
+            "emma": [
+              "frontend"
+            ],
+            "carl": [
+              "frontend"
+            ]
+          }
+        },
+        {
+          "task_id": "T2",
+          "skill_coverage": {
+            "qa": [
+              "bob"
+            ],
+            "data": [
+              "dina"
+            ]
+          },
+          "people_contributions": {
+            "dina": [
+              "data"
+            ],
+            "bob": [
+              "qa"
+            ]
+          }
+        },
+        {
+          "task_id": "T1",
+          "skill_coverage": {
+            "frontend": [
+              "alice"
+            ],
+            "backend": [
+              "alice"
+            ]
+          },
+          "people_contributions": {
+            "alice": [
+              "frontend",
+              "backend"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "date": "2025-09-24",
+      "assignments": [
+        {
+          "task_id": "T3",
+          "skill_coverage": {
+            "frontend": [
+              "emma",
+              "carl"
+            ]
+          },
+          "people_contributions": {
+            "emma": [
+              "frontend"
+            ],
+            "carl": [
+              "frontend"
+            ]
+          }
+        },
+        {
+          "task_id": "T2",
+          "skill_coverage": {
+            "qa": [
+              "bob"
+            ],
+            "data": [
+              "dina"
+            ]
+          },
+          "people_contributions": {
+            "dina": [
+              "data"
+            ],
+            "bob": [
+              "qa"
+            ]
+          }
+        },
+        {
+          "task_id": "T1",
+          "skill_coverage": {
+            "frontend": [
+              "alice"
+            ],
+            "backend": [
+              "alice"
+            ]
+          },
+          "people_contributions": {
+            "alice": [
+              "frontend",
+              "backend"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "date": "2025-09-25",
+      "assignments": []
+    },
+    {
+      "date": "2025-09-26",
+      "assignments": []
+    },
+    {
+      "date": "2025-09-27",
+      "assignments": []
+    },
+    {
+      "date": "2025-09-28",
+      "assignments": []
+    }
+  ]
+}

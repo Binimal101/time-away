@@ -72,7 +72,7 @@ def run_demo_and_tests():
     return ws
 
 ws2 = run_demo_and_tests()
-out_path = os.path.join(os.getcwd(), "data", "weekly_schedule.json")
+out_path = os.path.join(os.path.dirname(__file__), "data", "weekly_schedule.json")
 
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(asdict(ws2), f, indent=2)

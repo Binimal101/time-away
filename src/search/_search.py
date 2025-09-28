@@ -7,7 +7,7 @@ from collections import deque
 import itertools
 import logging
 
-from src.search import _TZ, logger
+from src import _TZ, logger
 
 @dataclass(frozen=True, order=True)
 class Person:

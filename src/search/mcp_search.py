@@ -1,5 +1,5 @@
 import datetime, calendar
-from src._search import Person, Task, HorizonScheduler
+from src.search._search import Person, Task, HorizonScheduler
 
 #TODO database abstractions 
 get_all_organization_departments = lambda: [None,] * 6
@@ -7,7 +7,7 @@ get_people_from_organization = lambda org: [None] * 6
 get_all_tasks_from_organization = lambda org, start_date, end_date: [None] * 6
 
 #start generate a bunch of schedule data for a organization
-from src._search import HorizonScheduler
+from src.search._search import HorizonScheduler
 
 today = datetime.date.today()
 first_of_month = today.replace(day=1)

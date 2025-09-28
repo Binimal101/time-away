@@ -1,13 +1,10 @@
-# Update: add PTO_map interface, cache_schedule() hook, PTO feasibility checker & month-view generator (separate file), and more tests.
 from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Set, Tuple, Optional, Iterable, Union
 import pandas as pd
-from pathlib import Path
 
-# Import common functionality from src
 from src import (
     logger, _TZ, display_dataframe_to_user, Person, Task, Assignment,
     epoch_to_date, daterange, start_of_week
@@ -17,12 +14,6 @@ def is_task_active_on_day(task: Task, day: date, tz_offset_hours: int = 0) -> bo
     start_day = epoch_to_date(task.start_epoch, tz_offset_hours)
     end_day = epoch_to_date(task.end_epoch, tz_offset_hours)
     return start_day <= day <= end_day
-
-
-# -----------------------
-# Core classes (using centralized definitions from src)
-# -----------------------
-
 
 class PlanStore:
     def __init__(self):
@@ -56,14 +47,12 @@ class PlanStore:
         used = self.count_in_window(person_id, start_win, day)
         if pending_same_day and not self.assigned_on(person_id, day):
             used += 1
-        return used <= 5 - (1 if not pending_same_day else 0)
+        return used <= (5 if pending_same_day else 4)
 
     def commit(self, assignments: List[Assignment]) -> None:
         for a in assignments:
             self._days_by_person.setdefault(a.person_id, set()).add(a.day)
 
-
-# PTO map normalization
 def normalize_pto_map(pto_map: Optional[Dict[date, List[Union[Person, str]]]]) -> Dict[date, Set[str]]:
     norm: Dict[date, Set[str]] = {}
     if not pto_map:
@@ -75,16 +64,9 @@ def normalize_pto_map(pto_map: Optional[Dict[date, List[Union[Person, str]]]]) -
                 ids.add(p.person_id)
             else:
                 ids.add(str(p))
-        if d in norm:
-            norm[d].update(ids)
-        else:
-            norm[d] = set(ids)
+        norm.setdefault(d, set()).update(ids)
     return norm
 
-
-# -----------------------
-# DaySolver (with PTO awareness)
-# -----------------------
 class DaySolver:
     def __init__(self,
                  day: date,
@@ -107,7 +89,6 @@ class DaySolver:
         self.person_by_id: Dict[str, Person] = {p.person_id: p for p in self.people}
 
         self.assigned_today: Dict[str, str] = {}
-        self.solution: List[Assignment] = []
 
     def _is_pto(self, pid: str) -> bool:
         return pid in self.pto_ids_by_day.get(self.day, set())
@@ -142,23 +123,21 @@ class DaySolver:
                 continue
             if not self.store.can_assign(p.person_id, self.day, pending_same_day=False):
                 continue
-
-            multi_cover = sum(1 for s in t.daily_requirements.keys() if s in p.skills and self.deficits[task_id].get(s, 0) > 0)
+            multi_cover = sum(1 for s in t.daily_requirements.keys()
+                              if s in p.skills and self.deficits[task_id].get(s, 0) > 0)
             used_last6 = self.store.count_in_window(p.person_id, self.day - timedelta(days=6), self.day - timedelta(days=1))
             can_cover.append((p, multi_cover, used_last6))
         can_cover.sort(key=lambda x: (-x[1], x[2], x[0].name))
         return [p for (p, _, __) in can_cover]
 
-    def _assign_person_to_task(self, p: Person, t: Task) -> Tuple[List[Tuple[str, int]], Tuple[str, ...]]:
+    def _assign_person_to_task(self, p: Person, t: Task) -> List[Tuple[str, int]]:
         changes = []
-        contributed = []
         for s in t.daily_requirements.keys():
             if s in p.skills and self.deficits[t.task_id].get(s, 0) > 0:
                 self.deficits[t.task_id][s] -= 1
                 changes.append((s, +1))
-                contributed.append(s)
         self.assigned_today[p.person_id] = t.task_id
-        return changes, tuple(sorted(contributed))
+        return changes
 
     def _undo_assignment(self, p: Person, t: Task, changes: List[Tuple[str, int]]):
         for (s, delta) in changes:
@@ -177,9 +156,8 @@ class DaySolver:
                 return True
             task_id, skill = next_need
             t = self.task_by_id[task_id]
-
             for p in self._candidates_for(task_id, skill):
-                changes, _ = self._assign_person_to_task(p, t)
+                changes = self._assign_person_to_task(p, t)
                 if not self.store.can_assign(p.person_id, self.day, pending_same_day=True):
                     self._undo_assignment(p, t, changes)
                     continue
@@ -205,10 +183,6 @@ class DaySolver:
             }
             return False, [], remaining
 
-
-# -----------------------
-# WeeklyScheduler with PTO_map + cache hook
-# -----------------------
 class WeeklyScheduler:
     def __init__(self, people: List[Person], tasks: List[Task], plan_store: PlanStore, tz_offset_hours: int = 0):
         self.people = people
@@ -221,16 +195,15 @@ class WeeklyScheduler:
                       now_epoch: int,
                       pto_map: Optional[Dict[date, List[Union[Person, str]]]] = None
                       ) -> Tuple[List[Assignment], List[Tuple[date, Dict[str, Dict[str, int]]]]]:
-        now_date = epoch_to_date(now_epoch, self.tz_offset)
         all_assignments: List[Assignment] = []
         unsatisfied: List[Tuple[date, Dict[str, Dict[str, int]]]] = []
 
         for d in daterange(week_start_day, week_start_day + timedelta(days=6)):
-            active = [t for t in self.tasks if is_task_active_on_day(t, d, self.tz_offset) and t.end_epoch >= now_epoch]
+            active = [t for t in self.tasks
+                      if is_task_active_on_day(t, d, self.tz_offset) and t.end_epoch >= now_epoch]
             if not active:
                 logger.info(f"[{d.isoformat()}] No active tasks; skipping.")
                 continue
-
             solver = DaySolver(d, self.people, active, self.store, tz_offset_hours=self.tz_offset, pto_map=pto_map)
             ok, assignments, deficits = solver.solve()
             if ok:
@@ -243,30 +216,19 @@ class WeeklyScheduler:
 
         return all_assignments, unsatisfied
 
-
 def cache_schedule(store: PlanStore,
                    assignments: List[Assignment],
                    pto_map: Optional[Dict[date, List[Union[Person, str]]]] = None,
                    pending_pto: Optional[Dict[date, List[Union[Person, str]]]] = None,
                    accept_pto: bool = False) -> Dict[date, List[str]]:
-    """
-    Commit assignments into the cache (PlanStore).
-    Optionally expand the PTO_map when accept_pto=True by merging pending_pto (MCP decision upstream).
-    Returns the updated PTO map (normalized to person_id strings).
-    """
     store.commit(assignments)
     base = normalize_pto_map(pto_map or {})
     if accept_pto and pending_pto:
         pend = normalize_pto_map(pending_pto)
         for d, ids in pend.items():
             base.setdefault(d, set()).update(ids)
-    # Return as List[str] for JSON-compat
     return {d: sorted(list(ids)) for d, ids in base.items()}
 
-
-# -----------------------
-# Pretty output helper
-# -----------------------
 def pretty_assignments(assignments: List[Assignment], people: List[Person], tasks: List[Task]) -> pd.DataFrame:
     pmap = {p.person_id: p for p in people}
     tmap = {t.task_id: t for t in tasks}
@@ -276,7 +238,8 @@ def pretty_assignments(assignments: List[Assignment], people: List[Person], task
             "date": a.day.isoformat(),
             "task": tmap[a.task_id].name,
             "person": pmap[a.person_id].name,
-            "skills_used": ", ".join(sorted(set(tmap[a.task_id].daily_requirements).intersection(pmap[a.person_id].skills)))
+            "skills_used": ", ".join(sorted(set(tmap[a.task_id].daily_requirements)
+                                            .intersection(pmap[a.person_id].skills)))
         })
     df = pd.DataFrame(rows, columns=["date", "task", "person", "skills_used"])
     return df

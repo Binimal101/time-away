@@ -24,6 +24,10 @@ def get_tasks_collection():
     db = get_db()
     return db['tasks']
 
+def get_pto_collection():
+    db = get_db()
+    return db['pto_requests']
+
 def get_all_collections():
     db = get_db()
     return db.list_collection_names()

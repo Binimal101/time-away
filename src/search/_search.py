@@ -64,14 +64,14 @@ class HorizonScheduler:
         tasks: List[Task], #TODO YOU IMPLEMENT FROM CLASS, USE THE SEARCH CLASS DESCRIPTORS
         start_day: date, #TODO date.today() for testing week
         span_days: int, #TODO put 7 for testing week
-        current_ts: int, #TODO date.today() for testing
+        current_ts: date, #TODO date.today() for testing
         allow_future: bool = False, #TODO True for testing
     ):
         self.people = sorted(people, key=lambda p: p.person_id)
         self.tasks = sorted(tasks, key=lambda t: t.task_id)
         self.start_day = start_day
         self.span_days = span_days
-        self.current_ts = current_ts
+        self.current_ts = int(datetime.combine(current_ts, datetime.min.time()).timestamp())
         self.allow_future = allow_future
 
         self.history_prev6: Dict[str, deque] = {}

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, date
 import os
-from src._search import Person, Task, HorizonScheduler, DaySchedule, _midnight_local, _mk_ts
+from src.search._search import Person, Task, HorizonScheduler, DaySchedule, _midnight_local, _mk_ts
 from dataclasses import asdict
 from collections import deque
 import json

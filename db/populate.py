@@ -1,5 +1,5 @@
 import sys
-sys.path.append("..")
+sys.path.insert(1,"..")
 import pydantic_types
 from connect import get_user_profile_collection, get_dept_collection, get_tasks_collection
 from pydantic_types.state_types import UserProfile, Department, Task

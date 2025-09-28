@@ -1,6 +1,7 @@
 import datetime, calendar
-from src.search._search import Person, Task, HorizonScheduler, HorizonSchedule
-from typing import Union, List, Dict, Any, Tuple
+from src.search._search import HorizonSchedulerPTO, HorizonSchedule
+from typing import Union, List, Dict, Any, Tuple, Set, Optional
+from src import _TZ, logger
 
 #TODO database abstractions 
 get_all_organization_departments = lambda: [None,] * 6
@@ -12,66 +13,54 @@ load_cached_schedule = lambda org, month, year: None
 
 #start to generate a bunch of schedule data for a organization
 
-def generate_month_schedule_against_PTO_request(PTO_requests: Dict[Tuple[datetime.date], List[object]], cur_date: datetime.date = datetime.date.today()):
-    """Generates a monthly schedule while considering PTO requests. DOES NOT CACHE. TODO lookback
-    
+def build_full_month_schedule_with_pto(month_date: datetime.date, pto_map: Optional[Dict[datetime.date, Set[str]]]):
+    """Builds a monthly schedule with PTO (Paid Time Off) considerations. FULL month for entire org, all departments."""
+    depts = get_all_organization_departments()
+
+    for dept in depts:
+        people = get_people_from_organization(dept)
+        tasks = get_all_tasks_from_organization(dept, first, last)
+        build_month_schedule_with_pto_from_items(people, tasks, month_date, pto_map)
+
+def build_month_schedule_with_pto_from_items(people: List[object], tasks: List[object], month_date: datetime.date, pto_map: Optional[Dict[datetime.date, Set[str]]]):
+    """Builds a monthly schedule with PTO (Paid Time Off) considerations FROM people and task lists.
+
     Args:
-        PTO_requests (Dict[Tuple[datetime.date], List[object]]): A list of PTO dates that match to employees.
-        cur_date (datetime.date, optional): The current date. Defaults to datetime.date.today().
+        people (List[object]): _description_
+        tasks (List[object]): _description_
+        month_date (datetime.date): _description_
+        pto_map (Optional[Dict[datetime.date, Set[str]]]): _description_
+
+    Returns:
+        _type_: _description_
     """
-    monthly_departmental_schedules: Dict[object, List[HorizonSchedule]] = dict()
-    for dept in get_all_organization_departments():
-        month_schedule: List[HorizonSchedule] = list()
-        
-        #DO SEQUENCTIAL DAYS AND DISINCLUDE PTO DAY'S IN THE MONTH
-        #WE DO NOT TAKE INTO ACCOUNT THE POSSIBILITY OF PTO REQUESTS SPANNING MONTHS
-        
-        disinclude_employeeid_from_working_today = set()
+    first = month_date.replace(day=1)
+    last = (first + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
+    span = (last - first).days + 1
+    return HorizonSchedulerPTO(people, tasks, first, span, int(datetime.datetime.now(tz=_TZ).timestamp()), allow_future=True, pto_map=pto_map).build() # type: ignore
 
-        #TODO lookback here and preset employees preworked_in_last_7
-        for i_day in range(1, calendar.monthrange(cur_date.year, cur_date.month)[1] + 1):
-            #get day_schedules for each day in the month, disinclude PTO days for employees
-            
-            #grab people who may have pto on this day
-            pto_people = [emp for emp, pto_dates in PTO_requests.items() if cur_date in pto_dates]
-            for emp in pto_people:
-                #disinclude this employee from the schedule for this day
-                disinclude_employeeid_from_working_today.add(emp)
+# def fill_month_schedule(today: datetime.date = datetime.date.today()):
+#     """TODO check cached dates against last 7 days to pre-populate preworked_in_last_7 for employees.
 
-            employees = [x for x in get_people_from_organization(dept) if x.person_id not in disinclude_employeeid_from_working_today]  # type: ignore
-            tasks = get_all_tasks_from_organization(dept, cur_date.replace(day=i_day), cur_date.replace(day=i_day))
-            
-            sched = abstract_output(HorizonScheduler(
-                people=employees,  # type: ignore
-                tasks=tasks,  # type: ignore
-                start_day=cur_date.replace(day=i_day),
-                span_days=1,
-                current_ts=cur_date,
-                allow_future=True
-            ))
+#     Generates a schedule for all departments in an organization for the month specified at a generic date (in the month).
+#     Defaults to filling current month
+#     """
+#     first_of_month = today.replace(day=1)
+#     last_day = calendar.monthrange(today.year, today.month)[1]
+#     last_of_month = today.replace(day=last_day)
 
-def fill_month_schedule(today: datetime.date = datetime.date.today()):
-    """TODO check cached dates against last 7 days to pre-populate preworked_in_last_7 for employees.
+#     month_span_days = (last_of_month - first_of_month).days + 1
 
-    Generates a schedule for all departments in an organization for the month specified at a generic date (in the month).
-    Defaults to filling current month
-    """
-    first_of_month = today.replace(day=1)
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    last_of_month = today.replace(day=last_day)
+#     #goes dept for dept, gets all people and tasks, generates a schedule for the MONTH (monthview generator)
+#     for dept in get_all_organization_departments():  
+#         if not load_cached_schedule(dept, today.month, today.year):
+#             schedule = abstract_output(HorizonScheduler(
+#                 people=get_people_from_organization(dept), # type: ignore
+#                 tasks=get_all_tasks_from_organization(dept, first_of_month, last_of_month), # type: ignore
+#                 start_day=first_of_month,
+#                 span_days=month_span_days,
+#                 current_ts=today, # type: ignore
+#                 allow_future=True
+#             ))
 
-    month_span_days = (last_of_month - first_of_month).days + 1
-
-    #goes dept for dept, gets all people and tasks, generates a schedule for the MONTH (monthview generator)
-    for dept in get_all_organization_departments():  
-        if not load_cached_schedule(dept, today.month, today.year):
-            schedule = abstract_output(HorizonScheduler(
-                people=get_people_from_organization(dept), # type: ignore
-                tasks=get_all_tasks_from_organization(dept, first_of_month, last_of_month), # type: ignore
-                start_day=first_of_month,
-                span_days=month_span_days,
-                current_ts=today, # type: ignore
-                allow_future=True
-            ))
-
-            cache_schedule(dept, today.month, today.year, schedule)
+#             cache_schedule(dept, today.month, today.year, schedule)

@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, date
 import os
-from src.search._search import Person, Task, HorizonSchedulerPTO, HorizonSchedule, DaySchedule, _midnight_local, _mk_ts, _day_interval
+from server.src.search._search import Person, Task, HorizonSchedulerPTO, HorizonSchedule, DaySchedule, _midnight_local, _mk_ts, _day_interval
 from dataclasses import asdict
 from collections import deque
 import json
 from typing import List, Dict, Set
-from src import _TZ, logger
+from server.src import _TZ, logger
 
 # ---- Validation & tests ----
 import pandas as pd

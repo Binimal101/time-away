@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, date
 from collections import deque
 import itertools
 
-from src import _TZ, logger, _day_interval
+from server.src import _TZ, logger, _day_interval
 
 @dataclass(frozen=True, order=True)
 class Person:

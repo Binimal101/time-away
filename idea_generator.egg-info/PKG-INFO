@@ -4,6 +4,8 @@ Version: 0.1.0
 Summary: Add your description here
 Requires-Python: >=3.13
 Description-Content-Type: text/markdown
+Requires-Dist: jupyter>=1.1.1
+Requires-Dist: pandas>=2.3.2
 Requires-Dist: scrapy>=2.13.3
 Requires-Dist: pydantic>=2.11.9
 Requires-Dist: pymongo>=4.15.1

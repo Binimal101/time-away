@@ -1,4 +1,4 @@
-from src.search._search import *
+from server.src.search._search import *
 from datetime import datetime, timezone, date
 
 def _mk_ts(year, month, day):
@@ -13,7 +13,7 @@ def test_not_utilized():
         Task(task_id="t1", required_skills={"python": 1}, start_ts=_mk_ts(2024, 1, 1), end_ts=_mk_ts(2024, 1, 10)),
         Task(task_id="t2", required_skills={"java": 1}, start_ts=_mk_ts(2024, 1, 1), end_ts=_mk_ts(2024, 1, 10)),
     ]
-    scheduler = HorizonScheduler(
+    scheduler = HorizonSchedulerPTO(
         people=people,
         tasks=tasks,
         start_day=date(2024, 1, 2),
@@ -48,7 +48,7 @@ def test_utilized():
         Task(task_id="t2", required_skills={"java": 1}, start_ts=_mk_ts(2024, 1, 1), end_ts=_mk_ts(2024, 1, 10)),
        # Task(task_id="t3", required_skills={"python": 1}, start_ts=_mk_ts(2024, 1, 1), end_ts=_mk_ts(2024, 1, 10)),
     ]
-    scheduler = HorizonScheduler(
+    scheduler = HorizonSchedulerPTO(
         people=people,
         tasks=tasks,
         start_day=date(2024, 1, 2),
@@ -85,7 +85,7 @@ def test_pto_available():
     tasks = [
         Task(task_id="t1", required_skills={"python": 1}, start_ts=_mk_ts(2024, 1, 1), end_ts=_mk_ts(2024, 1, 10)),
     ]
-    scheduler = HorizonScheduler(
+    scheduler = HorizonSchedulerPTO(
         people=people,
         tasks=tasks,
         start_day=date(2024, 1, 2),
@@ -112,7 +112,7 @@ def test_pto_not_available():
     tasks = [
         Task(task_id="t1", required_skills={"python": 2}, start_ts=_mk_ts(2024, 1, 1), end_ts=_mk_ts(2024, 1, 10)),
     ]
-    scheduler = HorizonScheduler(
+    scheduler = HorizonSchedulerPTO(
         people=people,
         tasks=tasks,
         start_day=date(2024, 1, 2),

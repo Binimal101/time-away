@@ -179,7 +179,6 @@ def can_approve_pto(person_id: str,
     }
     return (len(any_unsat) == 0), result
 
-
 def can_approve_pto_strict(
     person_id: str,
     pto_days: List[Union[date, str]],
@@ -190,6 +189,7 @@ def can_approve_pto_strict(
     baseline_pto_map: Optional[Dict[Union[date, str], List[Union[Person, str, dict]]]] = None,
     cohort_pto_requests: Optional[Dict[str, List[Union[date, str]]]] = None,
 ) -> Tuple[bool, Dict]:
+    
     """
     Strict feasibility:
       - Clones the provided PlanStore (so rolling 7-day limits from history apply)

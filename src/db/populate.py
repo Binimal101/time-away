@@ -1,8 +1,5 @@
-import sys
-#sys.path.insert(1,"..")
-import pydantic_types
-from db.connect import get_user_profile_collection, get_dept_collection, get_tasks_collection
-from pydantic_types.state_types import UserProfile, Department, Task
+from src.db.connect import get_user_profile_collection, get_dept_collection, get_tasks_collection
+from src.pydantic_types.state_types import UserProfile, Department, Task
 from faker import Faker
 import random
 from datetime import timedelta

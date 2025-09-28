@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: idea-generator
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: scrapy>=2.13.3
+Requires-Dist: pydantic>=2.11.9
+Requires-Dist: pymongo>=4.15.1

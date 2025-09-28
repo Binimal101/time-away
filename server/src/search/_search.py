@@ -216,13 +216,18 @@ class HorizonSchedulerPTO:
             if not ok:
                 feasible = False
 
+        final_feasible = feasible and not self.violations
+        if not final_feasible:
+            for day_schedule in days:
+                day_schedule.assignments = []
+
         return HorizonSchedule(
             start_iso=self.horizon_midnights[0].isoformat(),
             end_iso=(self.horizon_midnights[-1] + timedelta(days=1)).isoformat(),
             tz=str(_TZ),
             current_ts=self.current_ts,
             allow_future=self.allow_future,
-            feasible=feasible and not self.violations,
+            feasible=final_feasible,
             violations=self.violations,
             days=days,
         )

@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+idea_generator.egg-info/PKG-INFO
+idea_generator.egg-info/SOURCES.txt
+idea_generator.egg-info/dependency_links.txt
+idea_generator.egg-info/requires.txt
+idea_generator.egg-info/top_level.txt

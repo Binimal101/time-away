@@ -1,6 +1,11 @@
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from pymongo import MongoClient
-from env import MONGO_URL
-uri = MONGO_URL
+
+uri = os.getenv("MONGO_URL")
 
 client = MongoClient(uri)
 

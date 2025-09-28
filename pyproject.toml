@@ -8,5 +8,6 @@ dependencies = [
     "scrapy>=2.13.3",
     "pydantic>=2.11.9",
     "pymongo>=4.15.1"
-
 ]
+[tool.setuptools]
+py-modules = []

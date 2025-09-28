@@ -1,233 +1,282 @@
-# Re-run PTO-aware Horizon Scheduler V4 after state reset (include all definitions + tests again).
-
+# Update: add PTO_map interface, cache_schedule() hook, PTO feasibility checker & month-view generator (separate file), and more tests.
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Dict, List, Set, Tuple, Optional
+
+import json
 from datetime import datetime, timedelta, date
-from collections import deque
-import itertools
+from typing import Dict, List, Set, Tuple, Optional, Iterable, Union
+import pandas as pd
+from pathlib import Path
 
-from server.src import _TZ, logger, _day_interval
+# Import common functionality from src
+from src import (
+    logger, _TZ, display_dataframe_to_user, Person, Task, Assignment,
+    epoch_to_date, daterange, start_of_week
+)
 
-@dataclass(frozen=True, order=True)
-class Person:
-    person_id: str
-    skills: Set[str]
-    preworked_in_last_7: int = 0
+def is_task_active_on_day(task: Task, day: date, tz_offset_hours: int = 0) -> bool:
+    start_day = epoch_to_date(task.start_epoch, tz_offset_hours)
+    end_day = epoch_to_date(task.end_epoch, tz_offset_hours)
+    return start_day <= day <= end_day
 
-@dataclass(frozen=True, order=True)
-class Task:
-    task_id: str
-    required_skills: Dict[str, int]
-    start_ts: int
-    end_ts: int
-    def is_active_on_day(self, day_start_ts: int, day_end_ts: int) -> bool:
-        return (self.start_ts < day_end_ts) and (self.end_ts > day_start_ts)
 
-@dataclass
-class AssignmentPerTaskPerDay:
-    task_id: str
-    skill_coverage: Dict[str, List[str]]
-    people_contributions: Dict[str, List[str]]
+# -----------------------
+# Core classes (using centralized definitions from src)
+# -----------------------
 
-@dataclass
-class DaySchedule:
-    date: str
-    assignments: List[AssignmentPerTaskPerDay] = field(default_factory=list)
 
-@dataclass
-class HorizonSchedule:
-    start_iso: str
-    end_iso: str
-    tz: str
-    current_ts: int
-    allow_future: bool
-    feasible: bool
-    violations: List[str]
-    days: List[DaySchedule] = field(default_factory=list)
+class PlanStore:
+    def __init__(self):
+        self._days_by_person: Dict[str, Set[date]] = {}
 
-def _midnight_local(d: date) -> datetime:
-    return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=_TZ)
+    def preload(self, assignments: List[Assignment]) -> None:
+        for a in assignments:
+            self._days_by_person.setdefault(a.person_id, set()).add(a.day)
 
-def _mk_ts(y, m, d, hh=0, mm=0, ss=0):
-    return int(datetime(y, m, d, hh, mm, ss, tzinfo=_TZ).timestamp())
+    def to_json(self) -> str:
+        payload = {p: sorted([d.isoformat() for d in days]) for p, days in self._days_by_person.items()}
+        return json.dumps(payload, indent=2)
 
-class HorizonSchedulerPTO:
-    def __init__(
-        self,
-        people: List[Person],
-        tasks: List[Task],
-        start_day: date,
-        span_days: int,
-        current_ts: int,
-        allow_future: bool = False,
-        pto_map: Optional[Dict[date, Set[str]]] = None,
-    ):
-        self.people = sorted(people, key=lambda p: p.person_id)
-        self.tasks = sorted(tasks, key=lambda t: t.task_id)
-        self.start_day = start_day
-        self.span_days = span_days
-        self.current_ts = current_ts
-        self.allow_future = allow_future
-        self.pto_map: Dict[date, Set[str]] = pto_map or {}
+    @staticmethod
+    def from_json(payload: str) -> "PlanStore":
+        obj = PlanStore()
+        data = json.loads(payload)
+        for p, day_list in data.items():
+            obj._days_by_person[p] = {date.fromisoformat(ds) for ds in day_list}
+        return obj
 
-        self.history_prev6: Dict[str, deque] = {}
+    def assigned_on(self, person_id: str, day: date) -> bool:
+        return day in self._days_by_person.get(person_id, set())
+
+    def count_in_window(self, person_id: str, start_day: date, end_day: date) -> int:
+        days = self._days_by_person.get(person_id, set())
+        return sum(1 for d in days if start_day <= d <= end_day)
+
+    def can_assign(self, person_id: str, day: date, pending_same_day: bool = False) -> bool:
+        start_win = day - timedelta(days=6)
+        used = self.count_in_window(person_id, start_win, day)
+        if pending_same_day and not self.assigned_on(person_id, day):
+            used += 1
+        return used <= 5 - (1 if not pending_same_day else 0)
+
+    def commit(self, assignments: List[Assignment]) -> None:
+        for a in assignments:
+            self._days_by_person.setdefault(a.person_id, set()).add(a.day)
+
+
+# PTO map normalization
+def normalize_pto_map(pto_map: Optional[Dict[date, List[Union[Person, str]]]]) -> Dict[date, Set[str]]:
+    norm: Dict[date, Set[str]] = {}
+    if not pto_map:
+        return {}
+    for d, plist in pto_map.items():
+        ids: Set[str] = set()
+        for p in plist:
+            if isinstance(p, Person):
+                ids.add(p.person_id)
+            else:
+                ids.add(str(p))
+        if d in norm:
+            norm[d].update(ids)
+        else:
+            norm[d] = set(ids)
+    return norm
+
+
+# -----------------------
+# DaySolver (with PTO awareness)
+# -----------------------
+class DaySolver:
+    def __init__(self,
+                 day: date,
+                 people: List[Person],
+                 tasks: List[Task],
+                 plan_store: PlanStore,
+                 tz_offset_hours: int = 0,
+                 pto_map: Optional[Dict[date, List[Union[Person, str]]]] = None):
+        self.day = day
+        self.people = sorted(people, key=lambda p: (p.name, p.person_id))
+        self.tasks = sorted(tasks, key=lambda t: (t.name, t.task_id))
+        self.store = plan_store
+        self.tz_offset_hours = tz_offset_hours
+        self.pto_ids_by_day: Dict[date, Set[str]] = normalize_pto_map(pto_map)
+
+        self.deficits: Dict[str, Dict[str, int]] = {
+            t.task_id: {s: c for s, c in t.daily_requirements.items() if c > 0} for t in self.tasks
+        }
+        self.task_by_id: Dict[str, Task] = {t.task_id: t for t in self.tasks}
+        self.person_by_id: Dict[str, Person] = {p.person_id: p for p in self.people}
+
+        self.assigned_today: Dict[str, str] = {}
+        self.solution: List[Assignment] = []
+
+    def _is_pto(self, pid: str) -> bool:
+        return pid in self.pto_ids_by_day.get(self.day, set())
+
+    def _all_satisfied(self) -> bool:
+        return all(all(cnt <= 0 for cnt in sk_cnts.values()) for sk_cnts in self.deficits.values())
+
+    def _select_next_need(self) -> Optional[Tuple[str, str]]:
+        best = None
+        best_need = -1
+        for t in self.tasks:
+            needs = self.deficits[t.task_id]
+            for skill, cnt in needs.items():
+                if cnt > 0:
+                    key = (t.name, skill)
+                    if cnt > best_need or (cnt == best_need and (best is not None and (key < (self.task_by_id[best[0]].name, best[1])))):
+                        best = (t.task_id, skill)
+                        best_need = cnt
+        return best
+
+    def _candidates_for(self, task_id: str, required_skill: str) -> List[Person]:
+        t = self.task_by_id[task_id]
+        can_cover = []
         for p in self.people:
-            d = max(0, min(5, int(p.preworked_in_last_7)))
-            q = deque([0,0,0,0,0,0], maxlen=6)
-            idx = 5
-            while d > 0 and idx >= 0:
-                q[idx] = 1
-                d -= 1
-                idx -= 1
-            self.history_prev6[p.person_id] = q
+            if self._is_pto(p.person_id):
+                continue
+            if p.person_id in self.assigned_today:
+                continue
+            if required_skill not in p.skills:
+                continue
+            if not set(t.daily_requirements.keys()) & p.skills:
+                continue
+            if not self.store.can_assign(p.person_id, self.day, pending_same_day=False):
+                continue
 
-        self.violations: List[str] = []
-        self.max_per_7 = 5
-        self.horizon_midnights: List[datetime] = [_midnight_local(self.start_day) + timedelta(days=i) for i in range(span_days)]
+            multi_cover = sum(1 for s in t.daily_requirements.keys() if s in p.skills and self.deficits[task_id].get(s, 0) > 0)
+            used_last6 = self.store.count_in_window(p.person_id, self.day - timedelta(days=6), self.day - timedelta(days=1))
+            can_cover.append((p, multi_cover, used_last6))
+        can_cover.sort(key=lambda x: (-x[1], x[2], x[0].name))
+        return [p for (p, _, __) in can_cover]
 
-    def _active_tasks_for_day(self, day_start_ts: int, day_end_ts: int) -> List[Task]:
-        active = [t for t in self.tasks if t.is_active_on_day(day_start_ts, day_end_ts)]
-        active.sort(key=lambda t: (-sum(t.required_skills.values()), t.end_ts, t.task_id))
-        return active
+    def _assign_person_to_task(self, p: Person, t: Task) -> Tuple[List[Tuple[str, int]], Tuple[str, ...]]:
+        changes = []
+        contributed = []
+        for s in t.daily_requirements.keys():
+            if s in p.skills and self.deficits[t.task_id].get(s, 0) > 0:
+                self.deficits[t.task_id][s] -= 1
+                changes.append((s, +1))
+                contributed.append(s)
+        self.assigned_today[p.person_id] = t.task_id
+        return changes, tuple(sorted(contributed))
 
-    def _rarity_score(self, tasks_today: List[Task]) -> Dict[str, float]:
-        supply = {}
-        for p in self.people:
-            for s in p.skills:
-                supply[s] = supply.get(s, 0) + 1
-        scores = {}
-        for t in tasks_today:
-            sc = 0.0
-            for s, c in t.required_skills.items():
-                sup = max(1, supply.get(s, 0))
-                sc += c / sup
-            scores[t.task_id] = sc
-        return scores
+    def _undo_assignment(self, p: Person, t: Task, changes: List[Tuple[str, int]]):
+        for (s, delta) in changes:
+            self.deficits[t.task_id][s] += delta
+        del self.assigned_today[p.person_id]
 
-    def _commit_day_usage(self, assigned_today: Set[str]):
-        for p in self.people:
-            pid = p.person_id
-            bit = 1 if pid in assigned_today else 0
-            self.history_prev6[pid].append(bit)
+    def solve(self) -> Tuple[bool, List[Assignment], Dict[str, Dict[str, int]]]:
+        if self._all_satisfied():
+            return True, [], {}
 
-    def _try_order(self, tasks_today: List[Task], day_date: date, day_start_ts: int, date_str: str) -> Tuple[bool, DaySchedule, Dict[str, List[str]]]:
-        snapshot = {pid: deque(q, maxlen=6) for pid, q in self.history_prev6.items()}
-        assigned_today: Set[str] = set()
-        day_sched = DaySchedule(date=date_str, assignments=[])
-        pto_people = self.pto_map.get(day_date, set())
+        def backtrack() -> bool:
+            if self._all_satisfied():
+                return True
+            next_need = self._select_next_need()
+            if not next_need:
+                return True
+            task_id, skill = next_need
+            t = self.task_by_id[task_id]
 
-        for task in tasks_today:
-            missing = {s: int(c) for s, c in task.required_skills.items() if c > 0}
-            apt = AssignmentPerTaskPerDay(task_id=task.task_id, skill_coverage={s: [] for s in missing}, people_contributions={})
+            for p in self._candidates_for(task_id, skill):
+                changes, _ = self._assign_person_to_task(p, t)
+                if not self.store.can_assign(p.person_id, self.day, pending_same_day=True):
+                    self._undo_assignment(p, t, changes)
+                    continue
+                if backtrack():
+                    return True
+                self._undo_assignment(p, t, changes)
+            return False
 
-            def uncovered():
-                return sum(max(0, v) for v in missing.values())
+        feasible = backtrack()
+        if feasible:
+            results: List[Assignment] = []
+            for pid, tid in sorted(self.assigned_today.items(), key=lambda kv: self.person_by_id[kv[0]].name):
+                p = self.person_by_id[pid]
+                t = self.task_by_id[tid]
+                skills_contrib = tuple(sorted(s for s in t.daily_requirements if s in p.skills))
+                results.append(Assignment(day=self.day, person_id=pid, task_id=tid, skills_contributed=skills_contrib))
+            return True, results, {}
+        else:
+            remaining = {
+                self.task_by_id[tid].name: {s: c for s, c in sk.items() if c > 0}
+                for tid, sk in self.deficits.items()
+                if any(v > 0 for v in sk.values())
+            }
+            return False, [], remaining
 
-            while uncovered() > 0:
-                best_p = None
-                best_covers: List[str] = []
 
-                for p in self.people:
-                    pid = p.person_id
-                    if pid in assigned_today:
-                        continue
-                    if pid in pto_people:
-                        continue
-                    used_prev6 = sum(snapshot[pid])
-                    if used_prev6 + 1 > self.max_per_7:
-                        continue
-                    covers = [s for s in p.skills if s in missing and missing[s] > 0]
-                    if not covers:
-                        continue
-                    cand_key = (len(covers), -sum(missing[s] for s in covers), pid)
-                    best_key = (len(best_covers), -sum(missing[s] for s in best_covers), best_p.person_id if best_p else "")
-                    if cand_key > best_key:
-                        best_p = p
-                        best_covers = covers
+# -----------------------
+# WeeklyScheduler with PTO_map + cache hook
+# -----------------------
+class WeeklyScheduler:
+    def __init__(self, people: List[Person], tasks: List[Task], plan_store: PlanStore, tz_offset_hours: int = 0):
+        self.people = people
+        self.tasks = tasks
+        self.store = plan_store
+        self.tz_offset = tz_offset_hours
 
-                if best_p is None:
-                    return False, day_sched, {}
+    def schedule_week(self,
+                      week_start_day: date,
+                      now_epoch: int,
+                      pto_map: Optional[Dict[date, List[Union[Person, str]]]] = None
+                      ) -> Tuple[List[Assignment], List[Tuple[date, Dict[str, Dict[str, int]]]]]:
+        now_date = epoch_to_date(now_epoch, self.tz_offset)
+        all_assignments: List[Assignment] = []
+        unsatisfied: List[Tuple[date, Dict[str, Dict[str, int]]]] = []
 
-                assigned_today.add(best_p.person_id)
-                snapshot[best_p.person_id].append(1)
-                for s in best_covers:
-                    missing[s] -= 1
-                    apt.skill_coverage.setdefault(s, []).append(best_p.person_id)
-                apt.people_contributions.setdefault(best_p.person_id, []).extend(best_covers)
+        for d in daterange(week_start_day, week_start_day + timedelta(days=6)):
+            active = [t for t in self.tasks if is_task_active_on_day(t, d, self.tz_offset) and t.end_epoch >= now_epoch]
+            if not active:
+                logger.info(f"[{d.isoformat()}] No active tasks; skipping.")
+                continue
 
-            day_sched.assignments.append(apt)
-
-        assigned_map = {pid: [] for pid in assigned_today}
-        for a in day_sched.assignments:
-            for pid, skills in a.people_contributions.items():
-                assigned_map.setdefault(pid, []).extend(skills)
-        return True, day_sched, assigned_map
-
-    def _attempt_day(self, day_dt: datetime) -> Tuple[bool, DaySchedule]:
-        day_start_ts, day_end_ts = _day_interval(day_dt)
-        date_str = day_dt.date().isoformat()
-        day_date = day_dt.date()
-
-        if (not self.allow_future) and (day_start_ts > self.current_ts):
-            logger.info(f"Skipping future day {date_str} (beyond current_ts).")
-            return True, DaySchedule(date=date_str, assignments=[])
-
-        tasks_today = self._active_tasks_for_day(day_start_ts, day_end_ts)
-        if not tasks_today:
-            self._commit_day_usage(set())
-            return True, DaySchedule(date=date_str, assignments=[])
-
-        logger.info(f"{date_str}: active tasks { [t.task_id for t in tasks_today] }; PTO={list(self.pto_map.get(day_date, set()))}")
-
-        orderings: List[List[Task]] = []
-        orderings.append(list(tasks_today))
-        rarity = self._rarity_score(tasks_today)
-        orderings.append(sorted(tasks_today, key=lambda t: (-rarity.get(t.task_id, 0.0), t.end_ts, t.task_id)))
-        orderings.append(sorted(tasks_today, key=lambda t: (t.end_ts, -sum(t.required_skills.values()), t.task_id)))
-        if len(tasks_today) <= 6:
-            for perm in itertools.permutations(tasks_today):
-                orderings.append(list(perm))
-
-        uniq, seen = [], set()
-        for ord_list in orderings:
-            sig = tuple(t.task_id for t in ord_list)
-            if sig not in seen:
-                uniq.append(ord_list)
-                seen.add(sig)
-
-        for idx, ord_list in enumerate(uniq, start=1):
-            logger.info(f"{date_str}: try ordering {idx}/{len(uniq)} -> {[t.task_id for t in ord_list]}")
-            ok, ds, assigned_map = self._try_order(ord_list, day_date, day_start_ts, date_str)
+            solver = DaySolver(d, self.people, active, self.store, tz_offset_hours=self.tz_offset, pto_map=pto_map)
+            ok, assignments, deficits = solver.solve()
             if ok:
-                self._commit_day_usage(set(assigned_map.keys()))
-                return True, ds
+                logger.info(f"[{d.isoformat()}] Day solved with {len(assignments)} assignments.")
+                self.store.commit(assignments)
+                all_assignments.extend(assignments)
+            else:
+                logger.warning(f"[{d.isoformat()}] UNSAT day. Deficits: {deficits}")
+                unsatisfied.append((d, deficits))
 
-        self.violations.append(f"{date_str}: could not satisfy all active tasks within constraints (PTO-respecting)")
-        self._commit_day_usage(set())
-        return False, DaySchedule(date=date_str, assignments=[])
+        return all_assignments, unsatisfied
 
-    def build(self) -> HorizonSchedule:
-        days: List[DaySchedule] = []
-        feasible = True
-        for day_dt in self.horizon_midnights:
-            ok, ds = self._attempt_day(day_dt)
-            days.append(ds)
-            if not ok:
-                feasible = False
 
-        final_feasible = feasible and not self.violations
-        if not final_feasible:
-            for day_schedule in days:
-                day_schedule.assignments = []
+def cache_schedule(store: PlanStore,
+                   assignments: List[Assignment],
+                   pto_map: Optional[Dict[date, List[Union[Person, str]]]] = None,
+                   pending_pto: Optional[Dict[date, List[Union[Person, str]]]] = None,
+                   accept_pto: bool = False) -> Dict[date, List[str]]:
+    """
+    Commit assignments into the cache (PlanStore).
+    Optionally expand the PTO_map when accept_pto=True by merging pending_pto (MCP decision upstream).
+    Returns the updated PTO map (normalized to person_id strings).
+    """
+    store.commit(assignments)
+    base = normalize_pto_map(pto_map or {})
+    if accept_pto and pending_pto:
+        pend = normalize_pto_map(pending_pto)
+        for d, ids in pend.items():
+            base.setdefault(d, set()).update(ids)
+    # Return as List[str] for JSON-compat
+    return {d: sorted(list(ids)) for d, ids in base.items()}
 
-        return HorizonSchedule(
-            start_iso=self.horizon_midnights[0].isoformat(),
-            end_iso=(self.horizon_midnights[-1] + timedelta(days=1)).isoformat(),
-            tz=str(_TZ),
-            current_ts=self.current_ts,
-            allow_future=self.allow_future,
-            feasible=final_feasible,
-            violations=self.violations,
-            days=days,
-        )
+
+# -----------------------
+# Pretty output helper
+# -----------------------
+def pretty_assignments(assignments: List[Assignment], people: List[Person], tasks: List[Task]) -> pd.DataFrame:
+    pmap = {p.person_id: p for p in people}
+    tmap = {t.task_id: t for t in tasks}
+    rows = []
+    for a in sorted(assignments, key=lambda x: (x.day, tmap[x.task_id].name, pmap[x.person_id].name)):
+        rows.append({
+            "date": a.day.isoformat(),
+            "task": tmap[a.task_id].name,
+            "person": pmap[a.person_id].name,
+            "skills_used": ", ".join(sorted(set(tmap[a.task_id].daily_requirements).intersection(pmap[a.person_id].skills)))
+        })
+    df = pd.DataFrame(rows, columns=["date", "task", "person", "skills_used"])
+    return df

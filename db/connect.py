@@ -1,7 +1,5 @@
 from pymongo import MongoClient
 
-from collections import frozenset
-
 uri = "mongodb+srv://au249_db_user:QdQk1laMIwkj303c@cluster0.qimgmdc.mongodb.net/"
 
 client = MongoClient(uri)
@@ -12,13 +10,16 @@ dept_collection = db['departments']
 tasks_collection = db['tasks']
 
 # make skills a frozen set
+
 user_profile_doc = {
     "name": "Victor Jimenez",
     "image": "victor_jimenez.jpg", 
-    "skills": frozenset("Databases", "SQL", "Python", "Unix", "AWS", "TensorFlow", "Pytorch" ),
+    "skills": frozenset(["Databases", "SQL", "Python", "Unix", "AWS", "TensorFlow", "Pytorch" ]),
     "dept": "Engineering", 
     "age": "7",
 }
+
+
 dept_collection_doc = {
     "name": "Engineering",
     "statistics": {
@@ -26,10 +27,11 @@ dept_collection_doc = {
         "numtasks": 10,
     }  
 }
+
 tasks_doc = {
     "name": "Set up database on servers", 
     "description": "Engineering team needs to set up cloud database on AWS for engineering team datastore", 
-    "skills": frozenset("Databases", "SQL", "Python", "Unix", "AWS" ),
+    "skills": frozenset(["Databases", "SQL", "Python", "Unix", "AWS" ]),
     "start_date": "September 25, 2025", 
     "end_date": "October 15, 2025", 
     "requirements": {
@@ -38,7 +40,9 @@ tasks_doc = {
     }
 }
 
-user_profile_collection.insert_one(user_profile_doc)
+
+
+#user_profile_collection.insert_one(user_profile_doc)
 dept_collection.insert_one(dept_collection_doc)
-tasks_collection.insert_one(tasks_doc)
+#tasks_collection.insert_one(tasks_doc)
 
